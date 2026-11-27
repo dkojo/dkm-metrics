@@ -1,0 +1,13 @@
+[project]
+name = "dkm"
+version = "0.1.0"
+description = "Python SDK for dkm-metrics: A/B test any part of your LLM application"
+requires-python = ">=3.10"
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["dkm"]

@@ -1,0 +1,120 @@
+# dkm-metrics
+
+A/B test any part of your LLM application (prompts, models, parameters, RAG settings, whole chains) so you can ship faster and with higher quality.
+
+```
+ Your LLM app                      dkm-metrics
+┌──────────────────┐   config    ┌──────────────────────────┐
+│  dkm SDK         │◄────────────│  server/  (FastAPI)      │
+│  - variant()     │             │  - experiments API       │
+│  - trace/track() │────────────►│  - event ingest          │
+└──────────────────┘   events    │  - stats engine          │
+                                 │  SQLite → Postgres       │
+                                 └────────────▲─────────────┘
+                                              │
+                                 ┌────────────┴─────────────┐
+                                 │  dashboard/  (Next.js)   │
+                                 └──────────────────────────┘
+```
+
+## How it works
+
+1. **Create an experiment** in the dashboard. Each variant is a JSON config, e.g. `{"prompt": "...", "model": "..."}`. The first variant is the control.
+2. **Ask the SDK for a variant** in your app. Assignment is a deterministic hash of experiment + user, so the same user always gets the same variant. It runs locally, with no network call on the hot path.
+3. **Record outcomes.** `dkm.trace()` records `latency_ms` and `error` automatically. Use `t.record()` / `dkm.track()` for anything else: `thumbs_up`, `tokens`, `cost`, ratings, conversions.
+4. **Read the verdict.** The dashboard compares each variant to the control: a two-proportion z-test for 0/1 metrics and Welch's t-test for continuous ones, with 95% confidence intervals and an estimate of how many more samples you need.
+
+```python
+from dkm import DKM
+
+dkm = DKM()  # reads DKM_API_KEY, DKM_BASE_URL (default http://localhost:8000)
+
+v = dkm.variant("support-prompt", user_id=user.id, default={"prompt": "You are helpful."})
+with dkm.trace(v) as t:
+    reply = client.messages.create(model=v["model"], system=v["prompt"], ...)
+    t.record(tokens=reply.usage.output_tokens)
+
+dkm.track(v, "thumbs_up", user_liked_it)
+```
+
+If the experiment isn't running, or the server is unreachable, `variant()` returns your `default` config and tracking becomes a no-op. The SDK never breaks your app.
+
+## Quick start
+
+**Docker:**
+```bash
+docker compose up --build
+# dashboard: http://localhost:3000   API: http://localhost:8000/docs
+# API key: dkm_local_dev_key (override with DKM_API_KEY=...)
+```
+
+**Local dev:**
+```bash
+# 1. server
+cd server
+python -m venv .venv && .venv/Scripts/activate      # macOS/Linux: source .venv/bin/activate
+pip install -e ".[dev]" -e ../sdk/python
+DKM_API_KEY=dkm_local_dev_key uvicorn dkm_server.main:app --reload
+
+# 2. dashboard (new terminal)
+cd dashboard
+cp .env.example .env.local
+npm install && npm run dev
+
+# 3. demo data (new terminal, server venv active)
+python examples/chatbot_demo.py
+```
+
+Open http://localhost:3000.
+
+## Project layout
+
+| Path | What |
+|---|---|
+| `server/dkm_server/models.py` | The 4 tables: Project, Experiment, Variant, Event |
+| `server/dkm_server/main.py` | REST API |
+| `server/dkm_server/stats.py` | Significance tests and verdicts |
+| `sdk/python/dkm/client.py` | Python SDK (zero dependencies) |
+| `dashboard/` | Next.js dashboard (server components plus server actions; the API key stays server-side) |
+| `examples/chatbot_demo.py` | Simulated prompt A/B test |
+
+## API
+
+All endpoints take `Authorization: Bearer <api key>`. Interactive docs are at `/docs`.
+
+| Method | Path | |
+|---|---|---|
+| GET / POST | `/api/experiments` | list / create |
+| GET / PATCH / DELETE | `/api/experiments/{key}` | read / update (incl. `status`: draft, running, stopped) / delete |
+| GET | `/api/experiments/{key}/results` | per-metric, per-variant stats |
+| GET | `/api/sdk/config` | running experiments, for the SDK |
+| POST | `/api/events` | batch ingest (max 1000 per request) |
+
+## Tests
+
+```bash
+cd server && .venv/Scripts/python -m pytest          # API + stats
+cd sdk/python && ../../server/.venv/Scripts/python -m pytest   # SDK + end-to-end
+cd dashboard && npm run lint && npm run build
+```
+
+## Configuration
+
+| Variable | Used by | Default |
+|---|---|---|
+| `DKM_API_KEY` | server (first start), SDK, dashboard | generated and printed on first start |
+| `DKM_DATABASE_URL` | server | `sqlite:///./dkm.db` (any SQLAlchemy URL, e.g. Postgres) |
+| `DKM_BASE_URL` | SDK | `http://localhost:8000` |
+| `DKM_API_URL` | dashboard | `http://localhost:8000` |
+
+## Known v1 limits
+
+- **No dashboard login.** Anyone who can reach the dashboard can manage experiments. Run it on a trusted network or behind your own auth proxy.
+- One project per server.
+- Stats are computed per event, not per user. Metrics recorded once per user (like a single thumbs up) are exact; repeated events from the same user are treated as independent.
+- Results load all events into memory. Fine up to roughly 1M events per experiment.
+- Don't peek and stop early: decide your sample size up front (the dashboard's "~N more needed" helps).
+
+## Roadmap
+
+LLM-as-judge quality scores · offline evals on datasets · TypeScript SDK · multi-project and auth · sequential testing for safe early stopping.

@@ -1,0 +1,22 @@
+services:
+  server:
+    build: ./server
+    environment:
+      DKM_API_KEY: ${DKM_API_KEY:-dkm_local_dev_key}
+    volumes:
+      - dkm-data:/data
+    ports:
+      - "8000:8000"
+
+  dashboard:
+    build: ./dashboard
+    environment:
+      DKM_API_URL: http://server:8000
+      DKM_API_KEY: ${DKM_API_KEY:-dkm_local_dev_key}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - server
+
+volumes:
+  dkm-data:
