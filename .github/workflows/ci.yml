@@ -52,3 +52,5 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - run: docker compose build
+        env:
+          DKM_DASHBOARD_PASSWORD: ci-only

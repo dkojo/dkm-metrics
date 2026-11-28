@@ -13,6 +13,7 @@ services:
     environment:
       DKM_API_URL: http://server:8000
       DKM_API_KEY: ${DKM_API_KEY:-dkm_local_dev_key}
+      DKM_DASHBOARD_PASSWORD: ${DKM_DASHBOARD_PASSWORD:?Set DKM_DASHBOARD_PASSWORD to the password for the dashboard}
     ports:
       - "3000:3000"
     depends_on:
