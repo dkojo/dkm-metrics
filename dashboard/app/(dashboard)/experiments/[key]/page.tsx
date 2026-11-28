@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, unstable_rethrow } from "next/navigation";
 
 import { ErrorBox, StatusBadge } from "@/components/ui";
 import { api, ApiError, type Experiment, type Results } from "@/lib/api";
@@ -16,6 +16,7 @@ export default async function ExperimentPage(props: PageProps<"/experiments/[key
   try {
     [experiment, results] = await Promise.all([api<Experiment>(path), api<Results>(`${path}/results`)]);
   } catch (e) {
+    unstable_rethrow(e);
     if (e instanceof ApiError && e.status === 404) notFound();
     return <ErrorBox message={e instanceof ApiError ? e.message : String(e)} />;
   }

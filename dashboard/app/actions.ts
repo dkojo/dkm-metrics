@@ -1,15 +1,33 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 
 import { api, ApiError, type Experiment } from "@/lib/api";
+import { endSession, requireSession, startSession } from "@/lib/auth";
+import { checkPassword, safeNext } from "@/lib/session";
 
-// Note: the dashboard has no login in v1. Run it on a trusted network (see README).
+// Server Actions are reachable by direct POST, so every data action checks the session
+// (api() checks it too).
 
 export type FormState = { error: string | null };
 
+export async function login(_: FormState, form: FormData): Promise<FormState> {
+  if (!checkPassword(String(form.get("password") ?? ""))) {
+    await new Promise((r) => setTimeout(r, 1000)); // slow down guessing
+    return { error: "Wrong password." };
+  }
+  await startSession();
+  redirect(safeNext(String(form.get("next") ?? "/")));
+}
+
+export async function logout() {
+  await endSession();
+  redirect("/login");
+}
+
 export async function createExperiment(_: FormState, form: FormData): Promise<FormState> {
+  await requireSession();
   let variants: unknown;
   try {
     variants = JSON.parse(String(form.get("variants") ?? "[]"));
@@ -29,6 +47,7 @@ export async function createExperiment(_: FormState, form: FormData): Promise<Fo
       }),
     });
   } catch (e) {
+    unstable_rethrow(e);
     return { error: e instanceof ApiError ? e.message : "Something went wrong." };
   }
   revalidatePath("/");
@@ -36,6 +55,7 @@ export async function createExperiment(_: FormState, form: FormData): Promise<Fo
 }
 
 export async function setStatus(key: string, status: Experiment["status"]) {
+  await requireSession();
   await api(`/api/experiments/${encodeURIComponent(key)}`, {
     method: "PATCH",
     body: JSON.stringify({ status }),
@@ -45,6 +65,7 @@ export async function setStatus(key: string, status: Experiment["status"]) {
 }
 
 export async function deleteExperiment(key: string) {
+  await requireSession();
   await api(`/api/experiments/${encodeURIComponent(key)}`, { method: "DELETE" });
   revalidatePath("/");
   redirect("/");

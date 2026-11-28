@@ -43,8 +43,8 @@ If the experiment isn't running, or the server is unreachable, `variant()` retur
 
 **Docker:**
 ```bash
-docker compose up --build
-# dashboard: http://localhost:3000   API: http://localhost:8000/docs
+DKM_DASHBOARD_PASSWORD=pick-a-password docker compose up --build
+# dashboard: http://localhost:3000 (sign in with that password)   API: http://localhost:8000/docs
 # API key: dkm_local_dev_key (override with DKM_API_KEY=...)
 ```
 
@@ -58,7 +58,7 @@ DKM_API_KEY=dkm_local_dev_key uvicorn dkm_server.main:app --reload
 
 # 2. dashboard (new terminal)
 cd dashboard
-cp .env.example .env.local
+cp .env.example .env.local      # sets the dashboard password: change-me-locally
 npm install && npm run dev
 
 # 3. demo data (new terminal, server venv active)
@@ -76,6 +76,7 @@ Open http://localhost:3000.
 | `server/dkm_server/stats.py` | Significance tests and verdicts |
 | `sdk/python/dkm/client.py` | Python SDK (zero dependencies) |
 | `dashboard/` | Next.js dashboard (server components plus server actions; the API key stays server-side) |
+| `dashboard/proxy.ts`, `dashboard/lib/session.ts` | Dashboard login: redirects signed-out visitors; signed, httpOnly session cookie |
 | `examples/chatbot_demo.py` | Simulated prompt A/B test |
 
 ## API
@@ -98,6 +99,12 @@ cd sdk/python && ../../server/.venv/Scripts/python -m pytest   # SDK + end-to-en
 cd dashboard && npm run lint && npm run build
 ```
 
+## Dashboard login
+
+The dashboard is protected by a single password (`DKM_DASHBOARD_PASSWORD`). Signing in sets a signed, httpOnly session cookie that lasts 7 days. Every page and action checks it: `proxy.ts` redirects signed-out visitors, and the data layer (`lib/api.ts`) checks again before any API call. Changing the password signs everyone out. If no password is set, the dashboard stays locked.
+
+The SDK and REST API are unaffected; they keep using the API key.
+
 ## Configuration
 
 | Variable | Used by | Default |
@@ -106,10 +113,12 @@ cd dashboard && npm run lint && npm run build
 | `DKM_DATABASE_URL` | server | `sqlite:///./dkm.db` (any SQLAlchemy URL, e.g. Postgres) |
 | `DKM_BASE_URL` | SDK | `http://localhost:8000` |
 | `DKM_API_URL` | dashboard | `http://localhost:8000` |
+| `DKM_DASHBOARD_PASSWORD` | dashboard | none: **required**, the dashboard stays locked without it |
+| `DKM_SECURE_COOKIES` | dashboard | `false`. Set `true` behind HTTPS if your proxy doesn't send `X-Forwarded-Proto` |
 
 ## Known v1 limits
 
-- **No dashboard login.** Anyone who can reach the dashboard can manage experiments. Run it on a trusted network or behind your own auth proxy.
+- **One shared dashboard password**, no individual user accounts. Failed logins are slowed down, not rate-limited per IP, so use a strong password if the dashboard is reachable from the internet.
 - One project per server.
 - Stats are computed per event, not per user. Metrics recorded once per user (like a single thumbs up) are exact; repeated events from the same user are treated as independent.
 - Results load all events into memory. Fine up to roughly 1M events per experiment.
@@ -117,4 +126,4 @@ cd dashboard && npm run lint && npm run build
 
 ## Roadmap
 
-LLM-as-judge quality scores · offline evals on datasets · TypeScript SDK · multi-project and auth · sequential testing for safe early stopping.
+LLM-as-judge quality scores · offline evals on datasets · TypeScript SDK · multi-project and user accounts · sequential testing for safe early stopping.

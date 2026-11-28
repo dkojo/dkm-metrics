@@ -1,5 +1,8 @@
-// Server-side client for the dkm-metrics API. Only import from Server Components / Actions:
-// it reads the API key from the environment, which never reaches the browser.
+// Server-side client for the dkm-metrics API: the dashboard's data-access layer.
+// Only import from Server Components / Actions: it reads the API key from the environment,
+// which never reaches the browser, and checks the dashboard session before every call.
+
+import { requireSession } from "./auth";
 
 export type Variant = { key: string; weight: number; config: Record<string, unknown> };
 
@@ -59,6 +62,7 @@ export class ApiError extends Error {
 export const API_URL = process.env.DKM_API_URL ?? "http://localhost:8000";
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+  await requireSession(); // redirects to /login if signed out
   let res: Response;
   try {
     res = await fetch(`${API_URL}${path}`, {

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { unstable_rethrow } from "next/navigation";
 
 import { ErrorBox, StatusBadge } from "@/components/ui";
 import { api, ApiError, type Experiment } from "@/lib/api";
@@ -8,6 +9,7 @@ export default async function Home() {
   try {
     experiments = await api<Experiment[]>("/api/experiments");
   } catch (e) {
+    unstable_rethrow(e);
     return <ErrorBox message={e instanceof ApiError ? e.message : String(e)} />;
   }
 
