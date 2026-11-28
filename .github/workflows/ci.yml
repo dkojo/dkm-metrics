@@ -21,7 +21,7 @@ jobs:
           cache: pip
           cache-dependency-path: server/pyproject.toml
       - name: Install
-        run: pip install -e "server[dev]" -e sdk/python
+        run: pip install -e "server[dev]" -e "sdk/python[judge]"
       - name: Server tests
         working-directory: server
         run: pytest -q

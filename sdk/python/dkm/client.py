@@ -6,6 +6,7 @@
         resp = call_llm(v.config["prompt"])
         t.record(tokens=resp.usage.total_tokens)
     dkm.track(v, "thumbs_up", 1)
+    dkm.judge(v, helpfulness, input=question, output=reply)   # optional LLM-as-judge score (see judge.py)
 
 Design rules:
 - Variant assignment is local and deterministic (hash of experiment + user): no network on the hot path.
@@ -25,9 +26,13 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .judge import Judge
 
 log = logging.getLogger("dkm")
 
@@ -104,6 +109,7 @@ class DKM:
         batch_size: int = 100,
         timeout: float = 5.0,
         enabled: bool = True,
+        judge_workers: int = 4,
     ):
         self.api_key = api_key or os.getenv("DKM_API_KEY", "")
         self.base_url = (base_url or os.getenv("DKM_BASE_URL", DEFAULT_BASE_URL)).rstrip("/")
@@ -122,6 +128,9 @@ class DKM:
         self._stop = threading.Event()
         self._worker: threading.Thread | None = None
         self._worker_lock = threading.Lock()
+        self.judge_workers = judge_workers
+        self._judge_pool: ThreadPoolExecutor | None = None
+        self._judge_lock = threading.Lock()
 
     # ---------- public API ----------
 
@@ -157,6 +166,33 @@ class DKM:
     def trace(self, assignment: Assignment) -> Trace:
         return Trace(self, assignment)
 
+    def judge(
+        self,
+        assignment: Assignment,
+        judge: Judge,
+        *,
+        input: str,
+        output: str,
+        reference: str | None = None,
+    ) -> Future | None:
+        """Score `output` with an LLM judge in the background and record it as `judge.metric`.
+        Returns a Future (resolving to the Score, or None), or None when not tracking:
+        no judge call is made (or paid for) for untracked assignments."""
+        if not (self.enabled and assignment.tracked):
+            return None
+        with self._judge_lock:
+            if self._judge_pool is None:
+                self._judge_pool = ThreadPoolExecutor(max_workers=self.judge_workers, thread_name_prefix="dkm-judge")
+            pool = self._judge_pool
+
+        def run():
+            result = judge.score(input, output, reference)
+            if result is not None:
+                self.track(assignment, judge.metric, result.value)
+            return result
+
+        return pool.submit(run)
+
     def flush(self) -> None:
         """Send all queued events now."""
         while not self._queue.empty():
@@ -178,6 +214,8 @@ class DKM:
                 self._config_loaded_at = time.monotonic()
 
     def close(self) -> None:
+        if self._judge_pool is not None:
+            self._judge_pool.shutdown(wait=True)  # let pending judgments record their scores
         self._stop.set()
         if self._worker:
             self._worker.join(timeout=self.timeout)

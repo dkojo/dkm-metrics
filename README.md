@@ -39,6 +39,31 @@ dkm.track(v, "thumbs_up", user_liked_it)
 
 If the experiment isn't running, or the server is unreachable, `variant()` returns your `default` config and tracking becomes a no-op. The SDK never breaks your app.
 
+## LLM-as-judge scoring
+
+Score quality automatically, not just with thumbs-up. A judge asks Claude to rate each reply against your criteria and records the score as an ordinary metric, so the dashboard compares it across variants with no extra setup.
+
+```python
+from dkm.judge import Judge   # pip install "dkm[judge]"
+
+helpfulness = Judge(
+    metric="helpfulness",
+    criteria="Does the reply directly and correctly answer the user's question?",
+    scale="1-5",               # or "pass_fail" (tested as a rate)
+    # model="claude-haiku-5-5" # default is claude-opus-5-5; pick a cheaper judge if you prefer
+)
+
+dkm.judge(v, helpfulness, input=question, output=reply, reference=expected_answer)  # reference is optional
+```
+
+- **Never blocks your app:** judging runs in a background thread pool. `dkm.close()` waits for pending judgments before the final flush.
+- **Private by design:** it runs in your process with your Anthropic credentials (`ANTHROPIC_API_KEY` or an `ant auth login` profile). Your inputs and outputs go to Claude, never to the dkm server.
+- **No fake scores:** if Claude declines, the reply is cut off, or the call fails, no score is recorded (and a warning is logged).
+- **Cost:** one Claude call per judged reply. Untracked users (experiment not running) are never judged. To control spend, judge a sample (e.g. `if random.random() < 0.1:`) or use a cheaper `model`.
+- Structured outputs guarantee a valid `{reasoning, score}`; with Claude Opus 5.5 / Sonnet 5.5, server-side refusal fallbacks are on; the criteria prompt is marked for prompt caching (it takes effect once a rubric is long enough).
+
+Try it: `python examples/judge_demo.py` (needs Anthropic credentials; makes a few real calls).
+
 ## Quick start
 
 **Docker:**
@@ -77,7 +102,9 @@ Open http://localhost:3000.
 | `sdk/python/dkm/client.py` | Python SDK (zero dependencies) |
 | `dashboard/` | Next.js dashboard (server components plus server actions; the API key stays server-side) |
 | `dashboard/proxy.ts`, `dashboard/lib/session.ts` | Dashboard login: redirects signed-out visitors; signed, httpOnly session cookie |
+| `sdk/python/dkm/judge.py` | LLM-as-judge scoring (optional `[judge]` extra) |
 | `examples/chatbot_demo.py` | Simulated prompt A/B test |
+| `examples/judge_demo.py` | LLM-judge scoring demo (real Claude calls) |
 
 ## API
 
@@ -126,4 +153,4 @@ The SDK and REST API are unaffected; they keep using the API key.
 
 ## Roadmap
 
-LLM-as-judge quality scores · offline evals on datasets · TypeScript SDK · multi-project and user accounts · sequential testing for safe early stopping.
+offline evals on datasets · TypeScript SDK · multi-project and user accounts · sequential testing for safe early stopping.
